@@ -1,12 +1,21 @@
+use std::f32::consts::PI;
+
 use bevy::prelude::{
-    Added, Camera2dBundle, Changed, Color, Commands, Entity, Query, Transform, Vec2, Vec3, With,
+    Added, Camera2dBundle, Changed, Color, Commands, Component, Entity, Quat, Query, Res,
+    Transform, Vec2, Vec3, Visibility, With,
 };
 use bevy_prototype_lyon::{
     prelude::{GeometryBuilder, ShapeBundle, Stroke},
     shapes,
 };
 
-use crate::boids::{Boid, Position, Velocity, ViewRadius};
+use crate::boids::{Boid, Position, TargetPosition, Velocity, ViewRadius, BoidSettings};
+
+#[derive(Component)]
+pub struct MainCamera2d;
+
+#[derive(Component)]
+pub struct TargetPositionRenderable;
 
 pub fn setup_render(mut commands: Commands) {
     let mut builder = GeometryBuilder::new();
@@ -36,20 +45,55 @@ pub fn setup_render(mut commands: Commands) {
         },
         Stroke::new(Color::hex("999999").unwrap(), 1.0),
     ));
+
+    let mut builder = GeometryBuilder::new();
+
+    let target_radius = 10.0;
+    let circle = shapes::Circle {
+        radius: target_radius,
+        center: Vec2::ZERO,
+    };
+    builder = builder.add(&circle);
+    commands.spawn((
+        ShapeBundle {
+            path: builder.build(),
+            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 2.0)),
+            ..Default::default()
+        },
+        Stroke::new(Color::RED, 1.0),
+        TargetPositionRenderable,
+    ));
 }
 
 pub fn setup_camera(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
+    commands.spawn((Camera2dBundle::default(), MainCamera2d));
+}
+
+fn get_transform_for_boid(position: &Position, velocity: &Velocity) -> Transform {
+    let Position(position) = position;
+    let Velocity(velocity) = velocity;
+    let mut degrees = 0.0_f32.to_radians();
+    if *velocity != Vec2::ZERO {
+        degrees = velocity.normalize().angle_between(Vec2::new(0.0, 1.0));
+    }
+    if degrees.is_nan() {
+        println!("nan!");
+
+    }
+    Transform::from_translation(Vec3::new(position.x, position.y, 1.0)).with_rotation(
+        Quat::from_axis_angle(Vec3::new(0.0, 0.0, 1.0), PI * 2. - degrees),
+    )
 }
 
 pub fn spawn_boid_renderable(
+    settings: Res<BoidSettings>,
     mut commands: Commands,
     boids: Query<(Entity, &Position, &Velocity, &ViewRadius), (With<Boid>, Added<Boid>)>,
 ) {
-    for (entity, Position(position), velocity, view_radius) in boids.iter() {
+    for (entity, position, velocity, view_radius) in boids.iter() {
         let mut builder = GeometryBuilder::new();
 
-        let boid_radius = 10.0;
+        let boid_radius = settings.boid_radius;
         let boid_color = Color::BLACK;
 
         // circle representing the boid
@@ -57,16 +101,18 @@ pub fn spawn_boid_renderable(
             radius: boid_radius,
             center: Vec2::ZERO,
         };
+        let line = shapes::Line(Vec2::ZERO, Vec2::new(0.0, boid_radius));
 
         builder = builder.add(&circle);
+        builder = builder.add(&line);
 
         commands.entity(entity).insert((
             ShapeBundle {
                 path: builder.build(),
-                transform: Transform::from_translation(Vec3::new(position.x, position.y, 1.0)),
+                transform: get_transform_for_boid(position, velocity),
                 ..Default::default()
             },
-            Stroke::new(boid_color, 5.0),
+            Stroke::new(boid_color, 2.0),
         ));
     }
 }
@@ -77,7 +123,24 @@ pub fn update_boid_renderable_transform(
         (With<Boid>, Changed<Position>),
     >,
 ) {
-    for (entity, Position(position), velocity, view_radius, mut transform) in boids.iter_mut() {
-        transform.translation = Vec3::new(position.x, position.y, 1.0);
+    for (entity, position, velocity, view_radius, mut transform) in boids.iter_mut() {
+        *transform = get_transform_for_boid(position, velocity);
+    }
+}
+
+pub fn update_boid_target_renderable_transform(
+    target_position: Res<TargetPosition>,
+    mut target: Query<(&mut Transform, &mut Visibility), (With<TargetPositionRenderable>)>,
+) {
+    if let Ok((mut transform, mut visibility)) = target.get_single_mut() {
+        match target_position.position {
+            Some(position) => {
+                *visibility = Visibility::Visible;
+                transform.translation = Vec3::new(position.x, position.y, 2.0)
+            }
+            None => {
+                *visibility = Visibility::Hidden;
+            }
+        }
     }
 }
