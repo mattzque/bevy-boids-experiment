@@ -17,7 +17,7 @@ pub struct MainCamera2d;
 #[derive(Component)]
 pub struct TargetPositionRenderable;
 
-pub fn setup_render(mut commands: Commands) {
+pub fn setup_render(mut commands: Commands, settings: Res<BoidSettings>) {
     let mut builder = GeometryBuilder::new();
 
     let steps = 100;
@@ -49,11 +49,12 @@ pub fn setup_render(mut commands: Commands) {
     let mut builder = GeometryBuilder::new();
 
     let target_radius = 10.0;
-    let circle = shapes::Circle {
+    builder = builder.add(&shapes::Circle {
         radius: target_radius,
         center: Vec2::ZERO,
-    };
-    builder = builder.add(&circle);
+    });
+    builder = builder.add(&shapes::Line(Vec2::new(-target_radius, -target_radius), Vec2::new(target_radius, target_radius)));
+    builder = builder.add(&shapes::Line(Vec2::new(-target_radius, target_radius), Vec2::new(target_radius, -target_radius)));
     commands.spawn((
         ShapeBundle {
             path: builder.build(),
@@ -62,6 +63,27 @@ pub fn setup_render(mut commands: Commands) {
         },
         Stroke::new(Color::RED, 1.0),
         TargetPositionRenderable,
+    ));
+
+    // walls
+    let mut builder = GeometryBuilder::new();
+    let boundary = shapes::Polygon {
+        points: [
+            Vec2::new(settings.boundary_min_x, settings.boundary_min_y),
+            Vec2::new(settings.boundary_min_x, settings.boundary_max_y),
+            Vec2::new(settings.boundary_max_x, settings.boundary_max_y),
+            Vec2::new(settings.boundary_max_x, settings.boundary_min_y),
+        ].to_vec(),
+        closed: true
+    };
+    builder = builder.add(&boundary);
+    commands.spawn((
+        ShapeBundle {
+            path: builder.build(),
+            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 3.0)),
+            ..Default::default()
+        },
+        Stroke::new(Color::BLUE, 1.0),
     ));
 }
 
@@ -72,13 +94,9 @@ pub fn setup_camera(mut commands: Commands) {
 fn get_transform_for_boid(position: &Position, velocity: &Velocity) -> Transform {
     let Position(position) = position;
     let Velocity(velocity) = velocity;
-    let mut degrees = 0.0_f32.to_radians();
-    if *velocity != Vec2::ZERO {
-        degrees = velocity.normalize().angle_between(Vec2::new(0.0, 1.0));
-    }
+    let mut degrees = velocity.angle_between(Vec2::new(0.0, 1.0));
     if degrees.is_nan() {
-        println!("nan!");
-
+        degrees = 0.0_f32.to_radians();
     }
     Transform::from_translation(Vec3::new(position.x, position.y, 1.0)).with_rotation(
         Quat::from_axis_angle(Vec3::new(0.0, 0.0, 1.0), PI * 2. - degrees),

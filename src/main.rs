@@ -17,8 +17,8 @@ pub fn quit_on_escape(mut exit: EventWriter<AppExit>, key: Res<Input<KeyCode>>) 
 }
 
 fn main() {
-    let screen_width = 1920.;
-    let screen_height = 1080.;
+    let screen_width = 1280.;
+    let screen_height = 1280.;
     let window_scaling_factor = 1.0;
     let present_mode = PresentMode::AutoNoVsync; // PresentMode::AutoNoVsync
     App::new()
@@ -54,7 +54,7 @@ fn main() {
         .add_systems(Update, boids::respawn_boids)
         .add_systems(Update, boids::update_target_from_mouse_click)
         .add_systems(Update, boids::apply_boid_velocity)
-        .add_systems(Update, boids::update_boids)
+        .add_systems(Update, boids::update)
         .add_systems(Update, quit_on_escape)
 
         .run();
