@@ -1,11 +1,11 @@
+use bevy::{app::AppExit, prelude::*};
 use bevy::{
     prelude::*,
     window::{PresentMode, Window, WindowResolution},
 };
-use bevy::{app::AppExit, prelude::*};
 use bevy_inspector_egui::quick::ResourceInspectorPlugin;
 use bevy_prototype_lyon::prelude::*;
-use boids::{BoidSettings, TargetPosition, BoidTimer};
+use boids::{BoidSettings, BoidTimer, TargetPosition};
 
 mod boids;
 mod render;
@@ -56,6 +56,5 @@ fn main() {
         .add_systems(Update, boids::apply_boid_velocity)
         .add_systems(Update, boids::update)
         .add_systems(Update, quit_on_escape)
-
         .run();
 }

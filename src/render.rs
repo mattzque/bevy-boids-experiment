@@ -9,7 +9,7 @@ use bevy_prototype_lyon::{
     shapes,
 };
 
-use crate::boids::{Boid, Position, TargetPosition, Velocity, ViewRadius, BoidSettings};
+use crate::boids::{Boid, BoidSettings, Position, TargetPosition, Velocity, ViewRadius};
 
 #[derive(Component)]
 pub struct MainCamera2d;
@@ -53,8 +53,14 @@ pub fn setup_render(mut commands: Commands, settings: Res<BoidSettings>) {
         radius: target_radius,
         center: Vec2::ZERO,
     });
-    builder = builder.add(&shapes::Line(Vec2::new(-target_radius, -target_radius), Vec2::new(target_radius, target_radius)));
-    builder = builder.add(&shapes::Line(Vec2::new(-target_radius, target_radius), Vec2::new(target_radius, -target_radius)));
+    builder = builder.add(&shapes::Line(
+        Vec2::new(-target_radius, -target_radius),
+        Vec2::new(target_radius, target_radius),
+    ));
+    builder = builder.add(&shapes::Line(
+        Vec2::new(-target_radius, target_radius),
+        Vec2::new(target_radius, -target_radius),
+    ));
     commands.spawn((
         ShapeBundle {
             path: builder.build(),
@@ -73,8 +79,9 @@ pub fn setup_render(mut commands: Commands, settings: Res<BoidSettings>) {
             Vec2::new(settings.boundary_min_x, settings.boundary_max_y),
             Vec2::new(settings.boundary_max_x, settings.boundary_max_y),
             Vec2::new(settings.boundary_max_x, settings.boundary_min_y),
-        ].to_vec(),
-        closed: true
+        ]
+        .to_vec(),
+        closed: true,
     };
     builder = builder.add(&boundary);
     commands.spawn((

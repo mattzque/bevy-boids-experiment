@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{f32::consts::PI, time::Duration};
 
 use bevy::{
     prelude::{
@@ -43,14 +43,14 @@ pub struct BoidSettings {
 impl Default for BoidSettings {
     fn default() -> Self {
         Self {
-            boid_radius: 9.0,
+            boid_radius: 4.0,
             spawn_count: 200,
             spawn_min_position: -500.,
             spawn_max_position: 500.,
             max_speed: 0.2,
             max_force: 0.05,
-            velocity_time_scale: 0.01, // 50.5,
-            tick_time: 48,
+            velocity_time_scale: 0.04, // 50.5,
+            tick_time: 20,
 
             separation_radius: 17.6,
             separation_weight: 1.0,
@@ -127,13 +127,16 @@ pub fn setup_boids(
                 let distance = pos.distance(candidate);
                 distance < settings.boid_radius * 2.0
             }) {
+                let angle = rng.gen_range(0.0..(PI * 2.0));
+                let initial_velocity = Vec2::new(
+                    angle.cos() * settings.max_speed,
+                    angle.sin() * settings.max_speed,
+                );
+
                 commands.spawn((
                     Boid,
                     Position(candidate),
-                    Velocity(Vec2::new(
-                        rng.gen_range(-0.5..0.5),
-                        rng.gen_range(-0.5..0.5),
-                    )),
+                    Velocity(initial_velocity),
                     ViewRadius(view_radius),
                 ));
                 positions.push(candidate);
@@ -226,7 +229,7 @@ fn get_separation_force(
     max_speed: f32,
     max_force: f32,
 ) -> Vec2 {
-    let mut force = Vec2::ZERO;
+    let mut steer = Vec2::ZERO;
     let mut count = 0;
     for other_position in boids {
         let distance = position.distance(*other_position);
@@ -234,20 +237,20 @@ fn get_separation_force(
             let mut diff = position - *other_position;
             diff = diff.normalize();
             diff /= distance;
-            force += diff;
+            steer += diff;
             count += 1;
         }
     }
     if count > 0 {
-        force /= count as f32;
+        steer /= count as f32;
     }
-    if force.length() > 0.0 {
-        // force = force.normalize();
-        // force *= max_speed;
-        force -= velocity;
-        // force = limit_vec2(force, max_force);
+    if steer.length() > 0.0 {
+        steer = steer.normalize();
+        steer *= max_speed;
+        steer -= velocity;
+        steer = limit_vec2(steer, max_force);
     }
-    force
+    steer
 }
 
 /// Alignment, steer along with the average velocity of nearby boids
@@ -280,7 +283,11 @@ fn get_alignment_force(
     }
     if count > 0 {
         average_velocity /= count as f32;
-        average_velocity - velocity
+        average_velocity = average_velocity.normalize();
+        average_velocity *= max_speed;
+        average_velocity -= velocity;
+        average_velocity = limit_vec2(average_velocity, max_force);
+        average_velocity
     } else {
         Vec2::ZERO
     }
@@ -290,22 +297,18 @@ fn get_seek_force(
     position: Vec2,
     velocity: Vec2,
     target: Vec2,
+    max_speed: f32,
+    max_force: f32,
 ) -> Vec2 {
     let mut desired = target - position;
     if desired == Vec2::ZERO {
         return Vec2::ZERO;
     }
-    let mut distance = position.distance(target);
-    // println!("desired 1: {:?}", desired);
-    // desired = desired.normalize();
-    // desired *= max_speed;
-    // println!("desired 2: {:?}", desired);
-    let mut steer = (desired - velocity); //  / distance;
-    // println!("steer1: {:?}", steer);
-    // steer = limit_vec2(steer, max_force);
-    // println!("steer2: {:?}", steer);
-    // println!("max_force: {:?}", max_force);
-    steer
+    desired = desired.normalize();
+    desired *= max_speed;
+    desired -= velocity;
+    desired = limit_vec2(desired, max_force);
+    desired
 }
 
 /// Cohesion, steer towards the average position of nearby boids
@@ -339,7 +342,7 @@ fn get_cohesion_force(
     if count > 0 {
         average_position /= count as f32;
         if average_position.length() > 0.0 {
-            get_seek_force(position, velocity, average_position)
+            get_seek_force(position, velocity, average_position, max_speed, max_force)
         } else {
             Vec2::ZERO
         }
@@ -404,165 +407,49 @@ pub fn update(
             settings.max_force,
         );
 
-        if cohesion_force.is_nan() {
-            println!("cohesion_force: {:?}", cohesion_force);
-        }
-
-        // println!("separation_force: {:?}", separation_force);
-        // println!("alignment_force: {:?}", alignment_force);
-        // println!("separation_force: {:?}", cohesion_force);
-
         let mut acceleration = separation_force * settings.separation_weight;
         acceleration += alignment_force * settings.alignment_weight;
         acceleration += cohesion_force * settings.cohesion_weight;
         acceleration += collision_force * settings.collision_weight;
 
         if let Some(target_position) = target.position {
-            let force = get_seek_force(position.0, velocity.0, target_position);
+            let force = get_seek_force(
+                position.0,
+                velocity.0,
+                target_position,
+                settings.max_speed,
+                settings.max_force,
+            );
             acceleration += force * settings.seek_weight;
         }
 
         // Boundary avoidance
         if position.0.x < settings.boundary_min_x {
             acceleration.x = settings.max_force;
-            //acceleration.x += settings.boundary_avoidance_factor;
         }
         if position.0.x > settings.boundary_max_x {
             acceleration.x = -settings.max_force;
-            //acceleration.x -= settings.boundary_avoidance_factor;
         }
         if position.0.y < settings.boundary_min_y {
             acceleration.y = settings.max_force;
-            //acceleration.y += settings.boundary_avoidance_factor;
         }
         if position.0.y > settings.boundary_max_y {
             acceleration.y = -settings.max_force;
-            //acceleration.y -= settings.boundary_avoidance_factor;
         }
 
         acceleration = limit_vec2(acceleration, settings.max_force);
 
-        // println!("acceleration: {:?}", acceleration);
-        velocity.0 += acceleration; // * time.delta_seconds();
+        velocity.0 += acceleration;
         velocity.0 = limit_vec2(velocity.0, settings.max_speed);
-
-        // position.0 += velocity.0; //  * time.delta_seconds();
     }
 }
-
 
 pub fn apply_boid_velocity(
     time: Res<Time>,
     settings: Res<BoidSettings>,
-    mut boids: Query<
-        (&mut Position, &mut Velocity),
-        With<Boid>,
-    >,
+    mut boids: Query<(&mut Position, &mut Velocity), With<Boid>>,
 ) {
     for (mut position, mut velocity) in boids.iter_mut() {
         position.0 += velocity.0 * (time.elapsed_seconds() * settings.velocity_time_scale);
     }
 }
-
-/*
-pub fn update_boids(
-    time: Res<Time>,
-    settings: Res<BoidSettings>,
-    mut boids: Query<(Entity, &mut Position, &mut Velocity), With<Boid>>,
-    target_position: Res<TargetPosition>,
-    mut boid_timer: ResMut<BoidTimer>,
-) {
-    boid_timer.timer.tick(time.delta());
-
-    if !boid_timer.timer.finished() {
-        return;
-    }
-
-    let list_of_boids: Vec<(Entity, Position)> = boids
-        .iter()
-        .map(|(entity, position, _)| (entity, position.clone()))
-        .collect();
-
-    for boid in list_of_boids.iter() {
-        let (boid_entity, boid_position) = boid;
-        let (_, _, mut boid_velocity) = boids.get_mut(*boid_entity).unwrap();
-        let mut accel = Vec2::ZERO;
-
-        // Target seeking
-        if let Some(seek_target) = target_position.position {
-            let seek_velocity = seek_target - boid_position.0;
-            accel += seek_velocity * settings.seek_weight;
-        }
-
-        // Collision
-        let neighbors = find_neighbors(boid, &list_of_boids, settings.boid_radius * 2.0);
-        let mut collision_velocity = Vec2::new(0., 0.);
-        for (_, neighbor_position, _) in neighbors.iter() {
-            let separation_vector = boid_position.0 - neighbor_position.0;
-            collision_velocity += separation_vector;
-        }
-        accel += collision_velocity * settings.collision_weight;
-
-        // 1. Separation
-        let neighbors = find_neighbors(boid, &list_of_boids, settings.separation_radius);
-        let mut separation_velocity = Vec2::new(0., 0.);
-        for (_, neighbor_position, _) in neighbors.iter() {
-            let separation_vector = boid_position.0 - neighbor_position.0;
-            separation_velocity += separation_vector;
-        }
-        accel += separation_velocity * settings.separation_weight;
-
-        // 2. Alignment
-        let neighbors = find_neighbors(boid, &list_of_boids, settings.alignment_radius);
-        let mut alignment_velocity = Vec2::new(0., 0.);
-        for (neighbor_entity, _, _) in neighbors.iter() {
-            if let Ok((_, _, neighbor_velocity)) = boids.get(**neighbor_entity) {
-                alignment_velocity += neighbor_velocity.0;
-            }
-        }
-        if !neighbors.is_empty() {
-            alignment_velocity.x /= neighbors.len() as f32;
-            alignment_velocity.y /= neighbors.len() as f32;
-        }
-        accel += alignment_velocity * settings.separation_weight;
-
-        // 3. Cohesion
-        let neighbors = find_neighbors(boid, &list_of_boids, settings.cohesion_radius);
-        let mut average_position = Vec2::new(0., 0.);
-        for (neighbor_entity, _, _) in neighbors.iter() {
-            if let Ok((_, neighbor_position, _)) = boids.get(**neighbor_entity) {
-                average_position += neighbor_position.0;
-            }
-        }
-        if !neighbors.is_empty() {
-            average_position.x /= neighbors.len() as f32;
-            average_position.y /= neighbors.len() as f32;
-        }
-        accel += average_position * settings.cohesion_weight;
-
-        // Boundary avoidance
-        if boid_position.0.x < settings.boundary_min_x {
-            accel.x += settings.boundary_avoidance_factor;
-        }
-        if boid_position.0.x > settings.boundary_max_x {
-            accel.x -= settings.boundary_avoidance_factor;
-        }
-        if boid_position.0.y < settings.boundary_min_y {
-            accel.y += settings.boundary_avoidance_factor;
-        }
-        if boid_position.0.y > settings.boundary_max_y {
-            accel.y -= settings.boundary_avoidance_factor;
-        }
-
-        // limit top speed  of boids
-        if accel.length() > settings.max_speed {
-            accel = accel.normalize() * settings.max_speed;
-        }
-
-        // update velocity:
-        let (_, _, mut boid_velocity) = boids.get_mut(*boid_entity).unwrap();
-        boid_velocity.0 = accel;
-    }
-}
-
-*/
