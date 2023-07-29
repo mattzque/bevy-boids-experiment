@@ -3,19 +3,17 @@ use std::{f32::consts::PI, time::Duration};
 use bevy::{
     prelude::{
         info, Camera, Commands, Component, Entity, GlobalTransform, Input, KeyCode, MouseButton,
-        Query, ReflectResource, Res, ResMut, Resource, Vec2, With,
+        Query, Res, ResMut, Resource, Vec2, With,
     },
     reflect::Reflect,
     time::{Time, Timer, TimerMode},
     window::{PrimaryWindow, Window},
 };
-use bevy_inspector_egui::{prelude::ReflectInspectorOptions, InspectorOptions};
 use rand::Rng;
 
 use crate::render::MainCamera2d;
 
-#[derive(Reflect, Resource, InspectorOptions)]
-#[reflect(Resource, InspectorOptions)]
+#[derive(Reflect, Resource)]
 pub struct BoidSettings {
     pub boid_radius: f32,
     pub spawn_count: u32,
@@ -37,19 +35,23 @@ pub struct BoidSettings {
     pub boundary_max_x: f32,
     pub boundary_min_y: f32,
     pub boundary_max_y: f32,
-    pub boundary_avoidance_factor: f32,
 }
 
 impl Default for BoidSettings {
     fn default() -> Self {
         Self {
             boid_radius: 4.0,
+
             spawn_count: 200,
+
             spawn_min_position: -500.,
             spawn_max_position: 500.,
+
             max_speed: 0.2,
             max_force: 0.05,
+
             velocity_time_scale: 0.04, // 50.5,
+
             tick_time: 20,
 
             separation_radius: 17.6,
@@ -69,8 +71,6 @@ impl Default for BoidSettings {
             boundary_max_x: 600.0,
             boundary_min_y: -600.0,
             boundary_max_y: 600.0,
-
-            boundary_avoidance_factor: 0.9,
         }
     }
 }
@@ -184,24 +184,6 @@ pub fn update_target_from_mouse_click(
     }
 }
 
-pub fn find_neighbors<'a>(
-    boid: &(Entity, Position),
-    boids: &'a [(Entity, Position)],
-    radius: f32,
-) -> Vec<(&'a Entity, &'a Position, f32)> {
-    let mut neighbors = Vec::new();
-    let (entity, position) = boid;
-    for (other_entity, other_position) in boids {
-        if entity != other_entity {
-            let distance = position.0.distance(other_position.0);
-            if distance < radius {
-                neighbors.push((other_entity, other_position, distance));
-            }
-        }
-    }
-    neighbors
-}
-
 fn limit_vec2(vector: Vec2, max_length: f32) -> Vec2 {
     if vector.length() > max_length {
         vector.normalize() * max_length
@@ -224,14 +206,14 @@ fn limit_vec2(vector: Vec2, max_length: f32) -> Vec2 {
 fn get_separation_force(
     position: Vec2,
     velocity: Vec2,
-    boids: &[Vec2],
+    boids: &[(Vec2, Vec2)],
     separation_distance: f32,
     max_speed: f32,
     max_force: f32,
 ) -> Vec2 {
     let mut steer = Vec2::ZERO;
     let mut count = 0;
-    for other_position in boids {
+    for (other_position, _) in boids {
         let distance = position.distance(*other_position);
         if distance > 0.0 && distance < separation_distance {
             let mut diff = position - *other_position;
@@ -325,14 +307,14 @@ fn get_seek_force(
 fn get_cohesion_force(
     position: Vec2,
     velocity: Vec2,
-    boids: &[Vec2],
+    boids: &[(Vec2, Vec2)],
     cohesion_distance: f32,
     max_speed: f32,
     max_force: f32,
 ) -> Vec2 {
     let mut average_position = Vec2::ZERO;
     let mut count = 0;
-    for other_position in boids {
+    for (other_position, _) in boids {
         let distance = position.distance(*other_position);
         if distance > 0.0 && distance < cohesion_distance {
             average_position += *other_position;
@@ -356,24 +338,19 @@ pub fn update(
     mut timer: ResMut<BoidTimer>,
     settings: Res<BoidSettings>,
     target: Res<TargetPosition>,
-    mut query: Query<(Entity, &mut Position, &mut Velocity), With<Boid>>,
+    mut query: Query<(&Position, &mut Velocity), With<Boid>>,
 ) {
     timer.0.tick(time.delta());
     if !timer.0.finished() {
         return;
     }
 
-    let boids: Vec<Vec2> = query
+    let boids: Vec<(Vec2, Vec2)> = query
         .iter()
-        .map(|(_, position, _)| position.0.clone())
+        .map(|(position, velocity)| (position.0, velocity.0))
         .collect();
 
-    let boids2: Vec<(Vec2, Vec2)> = query
-        .iter()
-        .map(|(_, position, velocity)| (position.0.clone(), velocity.0.clone()))
-        .collect();
-
-    for (entity, mut position, mut velocity) in query.iter_mut() {
+    for (position, mut velocity) in query.iter_mut() {
         let collision_force = get_separation_force(
             position.0,
             velocity.0,
@@ -393,7 +370,7 @@ pub fn update(
         let alignment_force = get_alignment_force(
             position.0,
             velocity.0,
-            &boids2,
+            &boids,
             settings.alignment_radius,
             settings.max_speed,
             settings.max_force,
@@ -447,9 +424,9 @@ pub fn update(
 pub fn apply_boid_velocity(
     time: Res<Time>,
     settings: Res<BoidSettings>,
-    mut boids: Query<(&mut Position, &mut Velocity), With<Boid>>,
+    mut boids: Query<(&mut Position, &Velocity), With<Boid>>,
 ) {
-    for (mut position, mut velocity) in boids.iter_mut() {
+    for (mut position, velocity) in boids.iter_mut() {
         position.0 += velocity.0 * (time.elapsed_seconds() * settings.velocity_time_scale);
     }
 }

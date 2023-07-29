@@ -1,14 +1,12 @@
+use bevy::window::{PresentMode, Window, WindowResolution};
 use bevy::{app::AppExit, prelude::*};
-use bevy::{
-    prelude::*,
-    window::{PresentMode, Window, WindowResolution},
-};
-use bevy_inspector_egui::quick::ResourceInspectorPlugin;
+use bevy_egui::EguiPlugin;
 use bevy_prototype_lyon::prelude::*;
 use boids::{BoidSettings, BoidTimer, TargetPosition};
 
 mod boids;
 mod render;
+mod ui;
 
 pub fn quit_on_escape(mut exit: EventWriter<AppExit>, key: Res<Input<KeyCode>>) {
     if key.just_pressed(KeyCode::Escape) || key.just_pressed(KeyCode::Q) {
@@ -42,12 +40,12 @@ fn main() {
         .add_plugins(ShapePlugin)
         .insert_resource(TargetPosition::default())
         .insert_resource(BoidTimer::default())
-        .init_resource::<BoidSettings>() // `ResourceInspectorPlugin` won't initialize the resource
-        .register_type::<BoidSettings>() // you need to register your type to display it
-        .add_plugins(ResourceInspectorPlugin::<BoidSettings>::default())
+        .insert_resource(BoidSettings::default())
+        .add_plugins(EguiPlugin)
         .add_systems(Startup, boids::setup_boids)
         .add_systems(Startup, render::setup_camera)
         .add_systems(Startup, render::setup_render)
+        .add_systems(Update, ui::update_ui)
         .add_systems(Update, render::spawn_boid_renderable)
         .add_systems(Update, render::update_boid_renderable_transform)
         .add_systems(Update, render::update_boid_target_renderable_transform)
